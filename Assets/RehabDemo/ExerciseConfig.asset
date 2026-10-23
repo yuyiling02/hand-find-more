@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b2a952c4acbe9e449958cf2809896f3, type: 3}
+  m_Name: ExerciseConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RehabDemo.ExerciseConfig
+  holdTime: 0.8
+  targetReps: 8
+  greenEnter: 0.9
+  greenExit: 0.8
+  yellowThreshold: 0.5
+  relaxThreshold: 0.3
+  scoreSmoothTime: 0.05
+  pinchOpenRatio: 0.9
+  pinchClosedRatio: 0.25
+  fistFullCurl: 0.85
+  flexStartAngle: 10
+  flexTargetAngle: 60
