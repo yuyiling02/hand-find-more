@@ -16,7 +16,6 @@ namespace RehabDemo
 
     private GameObject _visual;
     private Text _text;
-    private int _shownAngle = int.MinValue;
 
     private void Awake()
     {
@@ -55,38 +54,9 @@ namespace RehabDemo
     // 放在 LateUpdate，保证拿到的是这一帧训练算出的角度
     private void LateUpdate()
     {
-      if (viewCamera == null)
+      if (_visual != null && _visual.activeSelf)
       {
-        viewCamera = Camera.main;
-      }
-      var exercise = ExerciseBase.Active;
-      var pose = HandFrameBus.Current;
-      var visible = exercise != null && pose.tracked && pose.joints != null && viewCamera != null;
-      if (_visual.activeSelf != visible)
-      {
-        _visual.SetActive(visible);
-      }
-      if (!visible)
-      {
-        return;
-      }
-
-      var center = Vector3.zero;
-      var top = float.NegativeInfinity;
-      foreach (var joint in pose.joints)
-      {
-        center += joint;
-        top = Mathf.Max(top, joint.y);
-      }
-      center /= pose.joints.Length;
-      _visual.transform.position = new Vector3(center.x, top + heightAboveHand, center.z + forwardOffset);
-      _visual.transform.rotation = viewCamera.transform.rotation;
-
-      var angle = Mathf.RoundToInt(exercise.AngleDegrees);
-      if (angle != _shownAngle)
-      {
-        _shownAngle = angle;
-        _text.text = angle + "°";
+        _visual.SetActive(false);
       }
     }
   }

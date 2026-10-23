@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 namespace RehabDemo
 {
-  public enum ExerciseIcon { Pinch, Fist, Flex }
+  public enum ExerciseIcon { Pinch, Fist, Flex, Microwave }
 
   /// <summary>菜单里的训练项目卡片：在 <see cref="DwellButton" /> 上加一个红蓝图标，文字靠右。</summary>
   [RequireComponent(typeof(DwellButton))]
@@ -51,6 +51,12 @@ namespace RehabDemo
           AddShape(content, ProcTextures.Rounded, _Blue, joint + new Vector2(-14f, 0f), new Vector2(30f, 7f), 0f);
           AddShape(content, ProcTextures.Rounded, _Blue, joint + direction * 14f, new Vector2(30f, 7f), 60f);
           AddShape(content, ProcTextures.Circle, _Red, joint, new Vector2(13f, 13f), 0f);
+          break;
+        case ExerciseIcon.Microwave:
+          // 蓝色微波炉外框 + 白色炉门窗 + 右侧红色开始键
+          AddShape(content, ProcTextures.Rounded, _Blue, center, new Vector2(44f, 32f), 0f);
+          AddShape(content, ProcTextures.Rounded, Color.white, center + new Vector2(-6f, 0f), new Vector2(24f, 20f), 0f);
+          AddShape(content, ProcTextures.Circle, _Red, center + new Vector2(13f, -4f), new Vector2(8f, 8f), 0f);
           break;
       }
     }

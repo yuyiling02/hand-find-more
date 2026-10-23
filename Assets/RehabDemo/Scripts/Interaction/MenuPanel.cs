@@ -9,13 +9,13 @@ namespace RehabDemo
   /// </summary>
   public class MenuPanel : MonoBehaviour
   {
-    public string[] titles = { "捏合", "握拳", "屈指" };
+    public string[] titles = { "捏合", "握拳", "屈指", "微波炉" };
     [Tooltip("卡片的宽、深（米）")]
-    public Vector2 cardSize = new Vector2(0.17f, 0.075f);
+    public Vector2 cardSize = new Vector2(0.17f, 0.068f);
     [Tooltip("第一张卡片中心到 MENU 按钮中心的距离（米）")]
-    public float firstOffset = 0.085f;
+    public float firstOffset = 0.078f;
     [Tooltip("相邻卡片中心的间距（米）")]
-    public float step = 0.09f;
+    public float step = 0.078f;
     [Tooltip("弹出、收起动画时长（秒）")]
     public float animTime = 0.2f;
 
@@ -29,6 +29,10 @@ namespace RehabDemo
 
     private void Awake()
     {
+      if (titles == null || titles.Length == 3)
+      {
+        titles = new[] { "捏合", "握拳", "屈指", "微波炉" };
+      }
       _cards = new DwellButton[titles.Length];
       for (var i = 0; i < titles.Length; i++)
       {
@@ -49,7 +53,7 @@ namespace RehabDemo
 
         var card = go.AddComponent<ExerciseCard>();
         card.index = i;
-        card.icon = (ExerciseIcon)Mathf.Min(i, 2);
+        card.icon = (ExerciseIcon)Mathf.Min(i, 3);
 
         var index = i;
         button.Triggered += _ => CardSelected?.Invoke(index);

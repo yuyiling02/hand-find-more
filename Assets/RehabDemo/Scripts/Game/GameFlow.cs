@@ -30,6 +30,30 @@ namespace RehabDemo
     private void Awake()
     {
       Instance = this;
+      EnsureMicrowaveExercise();
+    }
+
+    private void EnsureMicrowaveExercise()
+    {
+      if (exercises == null || exercises.Length == 0)
+      {
+        return;
+      }
+      foreach (var ex in exercises)
+      {
+        if (ex is MicrowaveExercise)
+        {
+          return;
+        }
+      }
+      var host = exercises[0] != null ? exercises[0].gameObject : gameObject;
+      var mw = host.GetComponent<MicrowaveExercise>() ?? host.AddComponent<MicrowaveExercise>();
+      mw.config = exercises[0] != null ? exercises[0].config : null;
+      mw.colorizer = colorizer;
+      var updated = new ExerciseBase[exercises.Length + 1];
+      System.Array.Copy(exercises, updated, exercises.Length);
+      updated[exercises.Length] = mw;
+      exercises = updated;
     }
 
     private void OnEnable()
@@ -210,15 +234,15 @@ namespace RehabDemo
         return;
       }
       var index = -1;
-      if (e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha3)
+      if (e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha4)
       {
         index = e.keyCode - KeyCode.Alpha1;
       }
-      else if (e.keyCode >= KeyCode.Keypad1 && e.keyCode <= KeyCode.Keypad3)
+      else if (e.keyCode >= KeyCode.Keypad1 && e.keyCode <= KeyCode.Keypad4)
       {
         index = e.keyCode - KeyCode.Keypad1;
       }
-      else if (e.character >= '1' && e.character <= '3')
+      else if (e.character >= '1' && e.character <= '4')
       {
         index = e.character - '1';
       }

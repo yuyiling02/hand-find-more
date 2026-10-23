@@ -133,6 +133,7 @@ namespace RehabDemo.EditorTools
         exercisesGo.AddComponent<PinchExercise>(),
         exercisesGo.AddComponent<FistExercise>(),
         exercisesGo.AddComponent<FingerFlexExercise>(),
+        exercisesGo.AddComponent<MicrowaveExercise>(),
       };
       foreach (var exercise in exercises)
       {
@@ -156,7 +157,6 @@ namespace RehabDemo.EditorTools
       flow.celebrateFx = flowGo.AddComponent<CelebrateFx>();
       flow.sfx = flowGo.AddComponent<Sfx>();
       flow.colorizer = colorizer;
-      flowGo.AddComponent<AngleLabel>();
       flowGo.AddComponent<HandLostHint>();
       flow.exercises = exercises;
       flow.menuButton = menuButton;

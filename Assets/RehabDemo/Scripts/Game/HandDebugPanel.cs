@@ -86,30 +86,47 @@ namespace RehabDemo
           $"食指下压：{FingertipPointer.Curl:F0}°（平时 {FingertipPointer.Baseline:F0}°）{(FingertipPointer.IsPressing ? " <color=#FFC82E>按下</color>" : "")}";
       }
       var exercise = ExerciseBase.Active;
-      var exerciseInfo = exercise != null
-        ? $"训练：{exercise.DisplayName}  {exercise.Reps} 次\nscore：{exercise.Score:F2}  角度：{exercise.AngleDegrees:F0}°"
-        : "训练：无（按 1/2/3 或点下面的按钮）";
+      string exerciseInfo;
+      if (exercise is MicrowaveExercise mw)
+      {
+        exerciseInfo = $"训练：{mw.DisplayName}（R 重置）\n{mw.CurrentStepSummary}";
+      }
+      else if (exercise != null)
+      {
+        exerciseInfo = $"训练：{exercise.DisplayName}  {exercise.Reps} 次\nscore：{exercise.Score:F2}  角度：{exercise.AngleDegrees:F0}°";
+      }
+      else
+      {
+        exerciseInfo = "训练：自由模式（按 1/2/3/4 或点下面的按钮）";
+      }
 
       // 键盘收不到时（比如中文输入法拦截了数字键）可以直接用鼠标点
       var flow = GameFlow.Instance;
       if (flow != null)
       {
-        string[] labels = { "捏合", "握拳", "屈指", "停止" };
-        var button = new Rect(info.x + 8, info.yMax - 34, (info.width - 16 - 6 * 3) / 4f, 26);
+        string[] labels = { "捏合", "握拳", "屈指", "微波炉", "重置" };
+        var button = new Rect(info.x + 6, info.yMax - 34, (info.width - 12 - 4 * 4) / 5f, 26);
         for (var i = 0; i < labels.Length; i++)
         {
           if (GUI.Button(button, labels[i]))
           {
-            if (i < 3)
+            if (i < 4)
             {
               flow.StartExercise(i);
             }
             else
             {
-              flow.ReturnToIdle();
+              if (ExerciseBase.Active is MicrowaveExercise activeMw)
+              {
+                activeMw.ResetSequence(true);
+              }
+              else
+              {
+                flow.ReturnToIdle();
+              }
             }
           }
-          button.x += button.width + 6;
+          button.x += button.width + 4;
         }
       }
       GUI.Label(new Rect(info.x + 8, info.y + 6, info.width - 16, info.height - 12),
