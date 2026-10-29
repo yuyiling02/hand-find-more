@@ -167,6 +167,12 @@ namespace RehabDemo
       _doorPushVelocity = 0f;
       _doorAutoClosing = false;
 
+      // 重置输入边沿，避免沿用重置前的捏合状态导致门无法再次发起拖拽
+      _isGrabbing = false;
+      _justGrabbed = false;
+      _releaseTimer = 0f;
+      _hasLastPalmPos = false;
+
       _cupState = CupState.OnTable;
       _cupPosition = cupStartPosition;
       _cupVelocity = Vector3.zero;
@@ -430,6 +436,8 @@ namespace RehabDemo
         _doorDragClosing = _doorOpenRatio >= 0.45f;
         _doorTargetOpen = _doorOpenRatio;
         _doorAutoClosing = false;
+        _doorPushTimer = 0f;
+        _doorPushVelocity = 0f;
         if (!_doorDragClosing)
         {
           // 开门后手要先离开门区域，才允许再次推门，防止开完门往右去拿杯子时把门带回
@@ -497,6 +505,11 @@ namespace RehabDemo
       {
         _doorPushArmed = true;
       }
+      else if (!_doorAutoClosing && _doorOpenRatio <= 0.02f && _doorTargetOpen <= 0.02f)
+      {
+        // 完全合上后重新建立推门的初始状态，避免上一次开门留下 false
+        _doorPushArmed = true;
+      }
       var pushVelocityTarget = Time.deltaTime > 1e-4f ? pullDelta / Time.deltaTime : 0f;
       _doorPushVelocity = Mathf.Lerp(_doorPushVelocity, pushVelocityTarget, 1f - Mathf.Exp(-Time.deltaTime * 10f));
       var canPush = !_draggingDoor && !_doorAutoClosing && _doorPushArmed && _doorCloseLockTimer <= 0f &&
@@ -519,11 +532,16 @@ namespace RehabDemo
       {
         if (_doorAutoClosing || (_doorTargetOpen > 0f && _doorTargetOpen < 0.14f))
         {
+          var wasMovingTowardClosed = _doorTargetOpen > 0.01f;
           _doorTargetOpen = Mathf.MoveTowards(_doorTargetOpen, 0f, (_doorAutoClosing ? 0.9f : 0.45f) * Time.deltaTime);
           if (_doorTargetOpen <= 0.01f)
           {
+            // 只在目标值第一次到达 0 时设置防抖锁，避免每帧把计时器续回 0.55 秒
+            if (wasMovingTowardClosed)
+            {
+              _doorCloseLockTimer = Mathf.Max(_doorCloseLockTimer, 0.55f);
+            }
             _doorTargetOpen = 0f;
-            _doorCloseLockTimer = Mathf.Max(_doorCloseLockTimer, 0.55f);
           }
         }
         else if (_doorPushTimer <= 0f)
@@ -569,6 +587,8 @@ namespace RehabDemo
         _doorLatched = true;
         _doorAutoClosing = false;
         _doorPushTimer = 0f;
+        _doorPushVelocity = 0f;
+        _doorPushArmed = true;
         _doorOpenRatio = 0f;
         _doorTargetOpen = 0f;
         _doorVelocity = 0f;
