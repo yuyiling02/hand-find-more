@@ -4,12 +4,12 @@ using UnityEngine;
 namespace RehabDemo
 {
   /// <summary>
-  ///   训练项目菜单：在 MENU 按钮的远端竖排三张卡片，打开和收起时做缩放动画。
+  ///   训练项目菜单：在 MENU 按钮的远端竖排两张卡片，打开和收起时做缩放动画。
   ///   本对象的位置应与 MENU 按钮重合。
   /// </summary>
   public class MenuPanel : MonoBehaviour
   {
-    public string[] titles = { "捏合", "握拳", "屈指", "微波炉" };
+    public string[] titles = { "捏合", "微波炉" };
     [Tooltip("卡片的宽、深（米）")]
     public Vector2 cardSize = new Vector2(0.17f, 0.068f);
     [Tooltip("第一张卡片中心到 MENU 按钮中心的距离（米）")]
@@ -19,8 +19,8 @@ namespace RehabDemo
     [Tooltip("弹出、收起动画时长（秒）")]
     public float animTime = 0.2f;
 
-    /// <summary>参数是卡片序号（0 起）。</summary>
-    public event Action<int> CardSelected;
+    /// <summary>参数是卡片对应的训练类型。</summary>
+    public event Action<ExerciseIcon> CardSelected;
 
     public bool IsOpen { get; private set; }
 
@@ -29,9 +29,9 @@ namespace RehabDemo
 
     private void Awake()
     {
-      if (titles == null || titles.Length == 3)
+      if (titles == null || titles.Length != 2)
       {
-        titles = new[] { "捏合", "握拳", "屈指", "微波炉" };
+        titles = new[] { "捏合", "微波炉" };
       }
       _cards = new DwellButton[titles.Length];
       for (var i = 0; i < titles.Length; i++)
@@ -53,10 +53,10 @@ namespace RehabDemo
 
         var card = go.AddComponent<ExerciseCard>();
         card.index = i;
-        card.icon = (ExerciseIcon)Mathf.Min(i, 3);
+        card.icon = i == 0 ? ExerciseIcon.Pinch : ExerciseIcon.Microwave;
 
-        var index = i;
-        button.Triggered += _ => CardSelected?.Invoke(index);
+        var icon = card.icon;
+        button.Triggered += _ => CardSelected?.Invoke(icon);
         go.SetActive(true);
         _cards[i] = button;
       }

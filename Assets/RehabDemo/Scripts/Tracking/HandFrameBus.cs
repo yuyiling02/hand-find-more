@@ -51,6 +51,10 @@ namespace RehabDemo
 
     private readonly RawHandFrame _raw = new RawHandFrame();
     private readonly Vector3[] _joints = new Vector3[LandmarkIds.Count];
+    // 默认视角下平滑后的手掌位置和各关节相对手掌的偏移，每帧再按当前视角组合成 _joints
+    private readonly Vector3[] _offsets = new Vector3[LandmarkIds.Count];
+    private Vector3 _basePosition;
+    private bool _hasBase;
     private readonly OneEuroFilter3[] _jointFilters = new OneEuroFilter3[LandmarkIds.Count];
     private readonly OneEuroFilter3 _positionFilter = new OneEuroFilter3();
     private int _sequence;
@@ -92,6 +96,7 @@ namespace RehabDemo
         // 重新检测到时从新位置开始，避免手从旧位置“飞”过来
         _filtersNeedReset = true;
       }
+      ComposeJoints();
 
       OnUpdated?.Invoke(Current);
     }
@@ -130,6 +135,7 @@ namespace RehabDemo
         Mathf.Lerp(areaZMax, areaZMin, palmN.y));
       _positionFilter.SetParams(positionMinCutoff, beta, dCutoff);
       position = _positionFilter.Filter(position, dt);
+      _basePosition = position;
 
       // 形状：world landmarks（米，y 朝下）→ Unity 局部坐标 → 转到桌面姿态
       var w = _raw.world;
@@ -139,7 +145,22 @@ namespace RehabDemo
       {
         var offset = rotation * (ToLocal(w[i]) - palmLocal);
         _jointFilters[i].SetParams(jointMinCutoff, beta, dCutoff);
-        _joints[i] = position + _jointFilters[i].Filter(offset, dt);
+        _offsets[i] = _jointFilters[i].Filter(offset, dt);
+      }
+      _hasBase = true;
+    }
+
+    /// <summary>按当前视角把平滑后的手掌位置和手形组合成世界坐标（每帧都做，视角过渡时手跟着平滑移动）。</summary>
+    private void ComposeJoints()
+    {
+      if (!_hasBase)
+      {
+        return;
+      }
+      CameraViewSwitcher.Remap(_basePosition, out var position, out var handRotation);
+      for (var i = 0; i < LandmarkIds.Count; i++)
+      {
+        _joints[i] = position + handRotation * _offsets[i];
       }
     }
 

@@ -85,8 +85,8 @@ namespace RehabDemo.EditorTools
     {
       var cameraGo = GameObject.Find("Main Camera");
       var camera = cameraGo.GetComponent<Camera>();
-      cameraGo.transform.position = new Vector3(0f, 0.75f, -0.55f);
-      cameraGo.transform.LookAt(new Vector3(0f, 0f, 0.05f));
+      cameraGo.transform.position = new Vector3(0f, 0.42f, -0.55f);
+      cameraGo.transform.LookAt(new Vector3(0f, 0.08f, 0.08f));
       camera.fieldOfView = 45f;
       camera.nearClipPlane = 0.05f;
       camera.farClipPlane = 20f;
@@ -131,8 +131,6 @@ namespace RehabDemo.EditorTools
       var exercises = new ExerciseBase[]
       {
         exercisesGo.AddComponent<PinchExercise>(),
-        exercisesGo.AddComponent<FistExercise>(),
-        exercisesGo.AddComponent<FingerFlexExercise>(),
         exercisesGo.AddComponent<MicrowaveExercise>(),
       };
       foreach (var exercise in exercises)
@@ -158,6 +156,7 @@ namespace RehabDemo.EditorTools
       flow.sfx = flowGo.AddComponent<Sfx>();
       flow.colorizer = colorizer;
       flowGo.AddComponent<HandLostHint>();
+      flowGo.AddComponent<CameraViewSwitcher>();
       flow.exercises = exercises;
       flow.menuButton = menuButton;
       flow.menuPanel = menuPanel;

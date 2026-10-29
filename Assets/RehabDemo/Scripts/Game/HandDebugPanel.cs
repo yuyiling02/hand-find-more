@@ -9,7 +9,8 @@ namespace RehabDemo
   {
     public HandTrackingRunner runner;
     public bool visible = true;
-    public int previewWidth = 320;
+    public int previewWidth = 200;
+    public float infoWidth = 190f;
 
     private static readonly Color _BoneColor = new Color(1f, 1f, 1f, 0.9f);
     private static readonly Color _JointColor = new Color(0.2f, 1f, 0.3f);
@@ -17,6 +18,7 @@ namespace RehabDemo
 
     private float _renderFps;
     private GUIStyle _textStyle;
+    private GUIStyle _buttonStyle;
 
     private void Awake()
     {
@@ -47,9 +49,10 @@ namespace RehabDemo
         return;
       }
 
-      _textStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 14, richText = true };
+      _textStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 11, richText = true, wordWrap = true };
+      _buttonStyle ??= new GUIStyle(GUI.skin.button) { fontSize = 11 };
 
-      const float margin = 10f;
+      const float margin = 8f;
       var texture = runner.PreviewTexture;
       var aspect = texture != null && texture.width > 16 ? (float)texture.height / texture.width : 0.75f;
       var preview = new Rect(margin, UnityEngine.Screen.height - margin - previewWidth * aspect, previewWidth, previewWidth * aspect);
@@ -76,14 +79,12 @@ namespace RehabDemo
       var raw = HandFrameBus.Raw;
       var pose = HandFrameBus.Current;
       var hasRawHand = raw != null && raw.hasHand;
-      var info = new Rect(preview.xMax + margin, preview.y, 260f, preview.height);
-      GUI.Box(info, GUIContent.none);
 
-      var metrics = "pinchRatio：—\nfistness：—";
+      var metrics = "pinch：—  fist：—";
       if (pose.tracked && pose.joints != null)
       {
-        metrics = $"pinchRatio：{HandMetrics.PinchRatio(pose.joints):F2}  fistness：{HandMetrics.Fistness(pose.joints):F2}\n" +
-          $"食指下压：{FingertipPointer.Curl:F0}°（平时 {FingertipPointer.Baseline:F0}°）{(FingertipPointer.IsPressing ? " <color=#FFC82E>按下</color>" : "")}";
+        metrics = $"pinch：{HandMetrics.PinchRatio(pose.joints):F2}  fist：{HandMetrics.Fistness(pose.joints):F2}\n" +
+          $"食指下压：{FingertipPointer.Curl:F0}°/{FingertipPointer.Baseline:F0}°{(FingertipPointer.IsPressing ? " <color=#FFC82E>按下</color>" : "")}";
       }
       var exercise = ExerciseBase.Active;
       string exerciseInfo;
@@ -97,22 +98,38 @@ namespace RehabDemo
       }
       else
       {
-        exerciseInfo = "训练：自由模式（按 1/2/3/4 或点下面的按钮）";
+        exerciseInfo = "训练：自由模式（按 1/2 或点按钮）";
       }
 
-      // 键盘收不到时（比如中文输入法拦截了数字键）可以直接用鼠标点
+      var infoText =
+        $"<b>调试面板（F1 开关）</b>\n" +
+        $"状态：{runner.Status}\n" +
+        $"帧率：渲染 {_renderFps:F0} / 识别 {runner.DetectionFps:F1}\n" +
+        $"追踪：{(pose.tracked ? "<color=#57D163>是</color>" : "<color=#E8443A>否</color>")}  " +
+        $"{(hasRawHand ? (raw.isLeft ? "左手" : "右手") + $"（{raw.handednessScore:F2}）" : "")}\n" +
+        $"{metrics}\n{exerciseInfo}";
+
+      // 面板高度按文字自适应（至少与摄像头画面一样高），底部对齐
       var flow = GameFlow.Instance;
+      const float buttonHeight = 20f;
+      var textWidth = infoWidth - 12f;
+      var textHeight = _textStyle.CalcHeight(new GUIContent(infoText), textWidth);
+      var infoHeight = Mathf.Max(preview.height, textHeight + 8f + (flow != null ? buttonHeight + 6f : 0f));
+      var info = new Rect(preview.xMax + margin, preview.yMax - infoHeight, infoWidth, infoHeight);
+      GUI.Box(info, GUIContent.none);
+
+      // 键盘收不到时（比如中文输入法拦截了数字键）可以直接用鼠标点
       if (flow != null)
       {
-        string[] labels = { "捏合", "握拳", "屈指", "微波炉", "重置" };
-        var button = new Rect(info.x + 6, info.yMax - 34, (info.width - 12 - 4 * 4) / 5f, 26);
+        string[] labels = { "捏合", "微波炉", "重置" };
+        var button = new Rect(info.x + 4, info.yMax - buttonHeight - 4, (info.width - 8 - 4 * (labels.Length - 1)) / labels.Length, buttonHeight);
         for (var i = 0; i < labels.Length; i++)
         {
-          if (GUI.Button(button, labels[i]))
+          if (GUI.Button(button, labels[i], _buttonStyle))
           {
-            if (i < 4)
+            if (i < labels.Length - 1)
             {
-              flow.StartExercise(i);
+              flow.StartExercise(i == 0 ? ExerciseIcon.Pinch : ExerciseIcon.Microwave);
             }
             else
             {
@@ -129,15 +146,7 @@ namespace RehabDemo
           button.x += button.width + 4;
         }
       }
-      GUI.Label(new Rect(info.x + 8, info.y + 6, info.width - 16, info.height - 12),
-        $"<b>调试面板（F1 开关）</b>\n" +
-        $"状态：{runner.Status}\n" +
-        $"渲染帧率：{_renderFps:F0} fps\n" +
-        $"识别帧率：{runner.DetectionFps:F1} fps\n" +
-        $"追踪到手：{(pose.tracked ? "<color=#57D163>是</color>" : "<color=#E8443A>否</color>")}\n" +
-        $"左右手：{(hasRawHand ? (raw.isLeft ? "左手" : "右手") + $"（{raw.handednessScore:F2}）" : "—")}\n" +
-        $"{metrics}\n{exerciseInfo}",
-        _textStyle);
+      GUI.Label(new Rect(info.x + 6, info.y + 4, textWidth, textHeight), infoText, _textStyle);
     }
 
     private static void DrawLandmarks(Rect preview)

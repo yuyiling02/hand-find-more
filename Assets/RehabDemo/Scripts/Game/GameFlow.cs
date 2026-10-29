@@ -4,7 +4,7 @@ namespace RehabDemo
 {
   /// <summary>
   ///   总流程：Idle → MenuOpen → Exercise → Celebrate → Idle。
-  ///   调试快捷键：数字键 1/2/3 直接开始对应的训练，Esc 回到 Idle。
+  ///   调试快捷键：数字键 1/2 直接开始对应的训练，Esc 回到 Idle。
   /// </summary>
   public class GameFlow : MonoBehaviour
   {
@@ -31,6 +31,11 @@ namespace RehabDemo
     {
       Instance = this;
       EnsureMicrowaveExercise();
+      // 多视角切换（旧场景里没有这个组件时自动补上）
+      if (CameraViewSwitcher.Instance == null && GetComponent<CameraViewSwitcher>() == null)
+      {
+        gameObject.AddComponent<CameraViewSwitcher>();
+      }
     }
 
     private void EnsureMicrowaveExercise()
@@ -80,13 +85,13 @@ namespace RehabDemo
       }
     }
 
-    private void OnCardSelected(int index)
+    private void OnCardSelected(ExerciseIcon icon)
     {
       if (sfx != null)
       {
         sfx.PlayClick();
       }
-      StartExercise(index);
+      StartExercise(icon);
     }
 
     private void OnMenuButton(DwellButton button)
@@ -120,15 +125,29 @@ namespace RehabDemo
       }
     }
 
-    public void StartExercise(int index)
+    public void StartExercise(ExerciseIcon icon)
     {
-      if (exercises == null || index < 0 || index >= exercises.Length || exercises[index] == null)
+      if (exercises == null)
       {
         return;
       }
+      foreach (var exercise in exercises)
+      {
+        if ((icon == ExerciseIcon.Pinch && exercise is PinchExercise) ||
+            (icon == ExerciseIcon.Microwave && exercise is MicrowaveExercise))
+        {
+          StartExercise(exercise);
+          return;
+        }
+      }
+      Debug.LogWarning($"[RehabDemo] 找不到训练组件：{icon}");
+    }
+
+    private void StartExercise(ExerciseBase exercise)
+    {
       ReturnToIdle();
 
-      _current = exercises[index];
+      _current = exercise;
       _current.RepCounted += OnRepCounted;
       _current.Completed += OnCompleted;
       _current.Begin();
@@ -233,27 +252,42 @@ namespace RehabDemo
         e.Use();
         return;
       }
-      var index = -1;
-      if (e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha4)
+      ExerciseIcon? icon = null;
+      if (e.keyCode >= KeyCode.Alpha1 && e.keyCode <= KeyCode.Alpha2)
       {
-        index = e.keyCode - KeyCode.Alpha1;
+        icon = e.keyCode == KeyCode.Alpha1 ? ExerciseIcon.Pinch : ExerciseIcon.Microwave;
       }
-      else if (e.keyCode >= KeyCode.Keypad1 && e.keyCode <= KeyCode.Keypad4)
+      else if (e.keyCode >= KeyCode.Keypad1 && e.keyCode <= KeyCode.Keypad2)
       {
-        index = e.keyCode - KeyCode.Keypad1;
+        icon = e.keyCode == KeyCode.Keypad1 ? ExerciseIcon.Pinch : ExerciseIcon.Microwave;
       }
-      else if (e.character >= '1' && e.character <= '4')
+      else if (e.character >= '1' && e.character <= '2')
       {
-        index = e.character - '1';
+        icon = e.character == '1' ? ExerciseIcon.Pinch : ExerciseIcon.Microwave;
       }
       // 已经在做这一项时不重新开始，避免一次按键触发两次
-      if (index >= 0 && !(State == FlowState.Exercise && _current == GetExercise(index)))
+      if (icon.HasValue && !(State == FlowState.Exercise && _current == GetExercise(icon.Value)))
       {
-        StartExercise(index);
+        StartExercise(icon.Value);
         e.Use();
       }
     }
 
-    private ExerciseBase GetExercise(int index) => exercises != null && index < exercises.Length ? exercises[index] : null;
+    private ExerciseBase GetExercise(ExerciseIcon icon)
+    {
+      if (exercises == null)
+      {
+        return null;
+      }
+      foreach (var exercise in exercises)
+      {
+        if ((icon == ExerciseIcon.Pinch && exercise is PinchExercise) ||
+            (icon == ExerciseIcon.Microwave && exercise is MicrowaveExercise))
+        {
+          return exercise;
+        }
+      }
+      return null;
+    }
   }
 }

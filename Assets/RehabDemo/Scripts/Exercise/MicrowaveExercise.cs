@@ -12,9 +12,9 @@ namespace RehabDemo
     private enum CupState { OnTable, Held, InMicrowave, Returning }
 
     [Header("摆放位置（桌面中心为原点）")]
-    public Vector3 microwavePosition = new Vector3(-0.12f, 0f, 0.07f);
-    public float microwaveYaw = 10f;
-    public Vector3 cupStartPosition = new Vector3(0.11f, 0f, -0.07f);
+    public Vector3 microwavePosition = new Vector3(0f, 0f, 0.08f);
+    public float microwaveYaw = 0f;
+    public Vector3 cupStartPosition = new Vector3(0.21f, 0f, -0.08f);
 
     [Header("交互手感参数")]
     [Tooltip("捏合或握拳达到该值即判定为抓握（比单纯捏合训练更宽松，方便移动手部）")]
@@ -55,6 +55,12 @@ namespace RehabDemo
     private bool _doorDragClosing;
     private float _doorCloseLockTimer;
     private bool _doorLatched = true;
+    // 推门关门：张开手掌贴着门往关门方向推即可，不必再捏住把手
+    private bool _doorPushArmed = true;
+    private float _doorPushTimer;
+    private float _doorPushVelocity;
+    // 门被推/拉到接近关闭（≤ 35%）后，由缓闭阻尼器自动带上锁好
+    private bool _doorAutoClosing;
     private Vector3 _lastPalmTablePos;
     private bool _hasLastPalmPos;
 
@@ -104,6 +110,13 @@ namespace RehabDemo
       {
         return;
       }
+      // 兼容旧场景里序列化的偏左斜放默认参数，自动校正为正中摆正
+      if (Mathf.Approximately(microwaveYaw, 10f) && Mathf.Approximately(microwavePosition.x, -0.12f))
+      {
+        microwavePosition = new Vector3(0f, 0f, 0.08f);
+        microwaveYaw = 0f;
+        cupStartPosition = new Vector3(0.21f, 0f, -0.08f);
+      }
       _oven = gameObject.AddComponent<MicrowaveOven>();
       _oven.Build(transform, microwavePosition, microwaveYaw);
       _camera = Camera.main;
@@ -149,6 +162,10 @@ namespace RehabDemo
       _doorDragClosing = false;
       _doorCloseLockTimer = 0f;
       _doorLatched = true;
+      _doorPushArmed = true;
+      _doorPushTimer = 0f;
+      _doorPushVelocity = 0f;
+      _doorAutoClosing = false;
 
       _cupState = CupState.OnTable;
       _cupPosition = cupStartPosition;
@@ -363,17 +380,29 @@ namespace RehabDemo
         : 99f;
       var aimedHandle = hasRay && handleDist <= handleHitRadius;
       var aimedDoorPanel = hasRay && doorPanelDist <= handleHitRadius * 1.45f;
+      // 整扇门（从合页到门边）的判定距离：门开着时手贴着门的任意位置都能推/抓
+      var doorHingePt = _oven.DoorPivot.TransformPoint(new Vector3(0.02f, 0f, -0.008f));
+      var doorEdgePt = _oven.DoorPivot.TransformPoint(new Vector3(0.225f, 0f, -0.008f));
+      var doorSegDist = hasRay
+        ? Mathf.Min(DistanceRayToSegment(grabRay, doorHingePt, doorEdgePt),
+                    DistanceRayToSegment(pointRay, doorHingePt, doorEdgePt))
+        : 99f;
+      if (_doorOpenRatio >= 0.18f)
+      {
+        aimedDoorPanel |= hasRay && doorSegDist <= handleHitRadius * 1.3f;
+      }
 
       // 当手明显对准可抓取的杯子（且比门把手更近）时，优先操作杯子，避免误关门/误抓门
       var cupDist = hasRay && IsCupReachable() ? GetCupRayDistance(grabRay, pointRay) : 99f;
-      var prioritizingCup = cupDist <= GetEffectiveCupGrabRadius() && cupDist < handleDist;
+      var doorGrabDist = _doorOpenRatio >= 0.18f ? Mathf.Min(handleDist, doorSegDist) : handleDist;
+      var prioritizingCup = cupDist <= GetEffectiveCupGrabRadius() && cupDist < doorGrabDist;
       var aimedDoor = (aimedHandle || aimedDoorPanel) && _cupState != CupState.Held && !prioritizingCup;
 
       var handTablePos = hasRay ? RayAtHeight(grabRay, 0.11f) : Vector3.zero;
       var frameDelta = Vector3.zero;
       if (hasRay)
       {
-        if (_hasLastPalmPos && Time.deltaTime > 1e-4f)
+        if (_hasLastPalmPos && Time.deltaTime > 1e-4f && !CameraViewSwitcher.IsTransitioning)
         {
           frameDelta = handTablePos - _lastPalmTablePos;
         }
@@ -400,16 +429,26 @@ namespace RehabDemo
         _draggingDoor = true;
         _doorDragClosing = _doorOpenRatio >= 0.45f;
         _doorTargetOpen = _doorOpenRatio;
+        _doorAutoClosing = false;
+        if (!_doorDragClosing)
+        {
+          // 开门后手要先离开门区域，才允许再次推门，防止开完门往右去拿杯子时把门带回
+          _doorPushArmed = false;
+        }
         EnsureExerciseStartedOnInteract();
       }
 
       var firmHold = _currentGrabScore >= grabEnterScore || Input.GetMouseButton(0);
       // 手是否仍然贴近门把手或门板（一旦手离开门的区域，立即与门脱离，门不再跟随手移动）
-      var handNearDoor = hasRay && Mathf.Min(handleDist, doorPanelDist) <= handleHitRadius * 2.25f;
+      // 关门时门在跟着转，判定区放宽，避免推到一半就“脱手”
+      var nearDoorDist = Mathf.Min(handleDist, Mathf.Min(doorPanelDist, doorSegDist));
+      var handNearDoor = hasRay && nearDoorDist <= handleHitRadius * (_doorDragClosing ? 3.4f : 2.25f);
+      // 往左（-X）或往近处（-Z）拉是缓缓开门；往右（+X）或往远处（+Z）推是缓缓关门
+      var pullDelta = (-frameDelta.x * 3.8f) + (-frameDelta.z * 2.5f);
 
       if (_draggingDoor)
       {
-        if (!_isGrabbing || !firmHold || !handNearDoor)
+        if (!_isGrabbing || (!firmHold && !_doorDragClosing) || !handNearDoor)
         {
           // 手松开或离开门：立即锁定在当前门角度，完全停止跟随
           _draggingDoor = false;
@@ -418,20 +457,18 @@ namespace RehabDemo
         }
         else
         {
-          // 往左（-X）或往近处（-Z）拉是缓缓开门；往右（+X）或往远处（+Z）推是缓缓关门
-          var pullDelta = (-frameDelta.x * 3.8f) + (-frameDelta.z * 2.5f);
           if (_doorDragClosing)
           {
             // 关门拖拽：只响应关门方向，防止手回撤把门带开
             if (pullDelta < 0f)
             {
-              _doorTargetOpen = Mathf.Clamp01(_doorTargetOpen + pullDelta);
+              _doorTargetOpen = Mathf.Clamp01(_doorTargetOpen + pullDelta * 1.3f);
             }
-            if (_doorTargetOpen <= 0.14f)
+            if (_doorTargetOpen <= 0.35f)
             {
-              _doorTargetOpen = 0f;
+              // 推到三分之一左右就交给缓闭阻尼器自动带上
               _draggingDoor = false;
-              _doorCloseLockTimer = 0.65f;
+              _doorAutoClosing = true;
             }
           }
           else
@@ -451,20 +488,45 @@ namespace RehabDemo
         }
       }
 
-      // 真实门锁卡扣阻尼：未抓门且门已被推到接近门框（< 14%）时，缓闭阻尼器带动门慢慢合拢锁死；
-      // 在其余角度（14% ~ 100%）手一旦离开门，门立即停留在当前位置，绝不继续乱动
+      // 推门关门：不用捏合，手掌贴着打开的门往右/往里推即可（像现实中顺手把门推上）
+      if (_doorPushTimer > 0f)
+      {
+        _doorPushTimer -= Time.deltaTime;
+      }
+      if (!hasRay || nearDoorDist > handleHitRadius * 2.6f)
+      {
+        _doorPushArmed = true;
+      }
+      var pushVelocityTarget = Time.deltaTime > 1e-4f ? pullDelta / Time.deltaTime : 0f;
+      _doorPushVelocity = Mathf.Lerp(_doorPushVelocity, pushVelocityTarget, 1f - Mathf.Exp(-Time.deltaTime * 10f));
+      var canPush = !_draggingDoor && !_doorAutoClosing && _doorPushArmed && _doorCloseLockTimer <= 0f &&
+                    _cupState != CupState.Held && _doorOpenRatio > 0.02f && hasRay &&
+                    nearDoorDist <= handleHitRadius * 1.7f;
+      if (canPush && pullDelta < 0f && _doorPushVelocity < -0.3f)
+      {
+        _doorTargetOpen = Mathf.Clamp01(Mathf.Min(_doorTargetOpen, _doorOpenRatio) + pullDelta * 1.4f);
+        _doorPushTimer = 0.2f;
+        EnsureExerciseStartedOnInteract();
+        if (_doorTargetOpen <= 0.35f)
+        {
+          _doorAutoClosing = true;
+        }
+      }
+
+      // 真实门锁卡扣阻尼：未抓门且门已被推到接近门框时，缓闭阻尼器带动门慢慢合拢锁死；
+      // 在其余角度手一旦离开门，门立即停留在当前位置，绝不继续乱动
       if (!_draggingDoor)
       {
-        if (_doorTargetOpen > 0f && _doorTargetOpen < 0.14f)
+        if (_doorAutoClosing || (_doorTargetOpen > 0f && _doorTargetOpen < 0.14f))
         {
-          _doorTargetOpen = Mathf.MoveTowards(_doorTargetOpen, 0f, 0.45f * Time.deltaTime);
+          _doorTargetOpen = Mathf.MoveTowards(_doorTargetOpen, 0f, (_doorAutoClosing ? 0.9f : 0.45f) * Time.deltaTime);
           if (_doorTargetOpen <= 0.01f)
           {
             _doorTargetOpen = 0f;
             _doorCloseLockTimer = Mathf.Max(_doorCloseLockTimer, 0.55f);
           }
         }
-        else
+        else if (_doorPushTimer <= 0f)
         {
           _doorTargetOpen = _doorOpenRatio;
           _doorVelocity = 0f;
@@ -482,9 +544,9 @@ namespace RehabDemo
       }
 
       // 仅在手抓着门或卡扣最后吸合时平滑推进；手离开后门静止不动
-      if (_draggingDoor || (_doorTargetOpen < 0.14f && _doorOpenRatio > 0f))
+      if (_draggingDoor || _doorPushTimer > 0f || _doorAutoClosing || (_doorTargetOpen < 0.14f && _doorOpenRatio > 0f))
       {
-        var maxSpeed = _doorTargetOpen < _doorOpenRatio ? 0.68f : 0.85f;
+        var maxSpeed = _doorTargetOpen < _doorOpenRatio ? 0.9f : 0.85f;
         _doorOpenRatio = Mathf.SmoothDamp(_doorOpenRatio, _doorTargetOpen, ref _doorVelocity, 0.07f, maxSpeed);
       }
       _oven.SetDoorOpenRatio(_doorOpenRatio);
@@ -505,6 +567,8 @@ namespace RehabDemo
       else if (!_doorLatched && _doorOpenRatio < 0.025f && _doorTargetOpen < 0.05f)
       {
         _doorLatched = true;
+        _doorAutoClosing = false;
+        _doorPushTimer = 0f;
         _doorOpenRatio = 0f;
         _doorTargetOpen = 0f;
         _doorVelocity = 0f;
@@ -591,8 +655,8 @@ namespace RehabDemo
           var entryCenter = _oven.CavityEntryWorld;
           var distToSlot = hasRay ? Mathf.Min(DistanceRayToPoint(grabRay, slotCenter), DistanceRayToPoint(grabRay, entryCenter)) : 99f;
 
-          // 如果是从微波炉里拿出来的，必须先把杯子移回桌面右侧区域后，才重新激活放入磁吸，避免取出中途被吸回转盘
-          if (!_cavityMagnetArmed && distToSlot > cavitySnapRadius * 1.35f && _cupPosition.x > 0.02f)
+          // 如果是从微波炉里拿出来的，必须先把杯子移出炉腔区域后，才重新激活放入磁吸，避免取出中途被吸回转盘
+          if (!_cavityMagnetArmed && distToSlot > cavitySnapRadius * 1.35f && (_cupPosition.x > 0.05f || _cupPosition.z < -0.08f))
           {
             _cavityMagnetArmed = true;
           }
@@ -989,19 +1053,7 @@ namespace RehabDemo
       {
         return;
       }
-      var exercises = GameFlow.Instance.exercises;
-      if (exercises == null)
-      {
-        return;
-      }
-      for (var i = 0; i < exercises.Length; i++)
-      {
-        if (exercises[i] == this)
-        {
-          GameFlow.Instance.StartExercise(i);
-          break;
-        }
-      }
+      GameFlow.Instance.StartExercise(ExerciseIcon.Microwave);
     }
 
     private static Vector3 RayAtHeight(Ray ray, float y)
