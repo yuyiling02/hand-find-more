@@ -36,3 +36,10 @@ bazel-*
 
 # Large packages
 *.unitypackage
+tools/depth/.venv/
+tools/depth/vendor/
+tools/depth/models/
+tools/depth/__pycache__/
+tools/depth/.bootstrap/
+tools/depth/.python/
+depth-compile.log

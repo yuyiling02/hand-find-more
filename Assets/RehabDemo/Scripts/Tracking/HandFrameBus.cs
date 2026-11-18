@@ -17,6 +17,23 @@ namespace RehabDemo
     public static RawHandFrame Raw { get; private set; }
 
     public HandTrackingRunner runner;
+    public ForwardControlMode ForwardMode { get; private set; } = ForwardControlMode.PalmRange;
+    public float TableZ => _basePosition.z;
+    public PalmRangeController PalmRange { get; } = new PalmRangeController();
+    public bool LogPalmRange { get; set; }
+    public ForwardControlRecording Recording { get; } = new ForwardControlRecording();
+    private (int device, int width, int height, bool mirrored, bool flipped, bool previewFlipped, HandFilter filter)? _palmCamera;
+
+    public void SetForwardMode(ForwardControlMode mode)
+    {
+      if (ForwardMode == mode) return;
+      ForwardMode = mode;
+      runner.Depth.depthEnabled = mode == ForwardControlMode.ModelDepth;
+      _positionFilter.Reset();
+      PalmRange.CancelCapture();
+      PalmRange.ResetMotion();
+      runner.Depth.ResetMotion();
+    }
 
     [Tooltip("只接受哪只手，用于只训练患侧手")]
     public HandFilter handFilter = HandFilter.Any;
@@ -83,7 +100,19 @@ namespace RehabDemo
         return;
       }
 
-      if (runner.TryGetLatest(_raw, ref _sequence) && _raw.hasHand && Accepts(_raw.isLeft))
+      var texture = runner.PreviewTexture;
+      var camera = (runner.deviceIndex, texture != null ? texture.width : 0,
+        texture != null ? texture.height : 0, runner.mirrorX, runner.flipY, runner.PreviewVerticallyMirrored, handFilter);
+      if (_palmCamera.HasValue && _palmCamera.Value != camera)
+        PalmRange.ResetCalibration("摄像头、分辨率、图像方向或手别配置变化，校准已清除");
+      _palmCamera = camera;
+      var newFrame = runner.TryGetLatest(_raw, ref _sequence);
+      if (ForwardMode == ForwardControlMode.PalmRange)
+      {
+        PalmRange.Tick(runner.ClockMs, Time.unscaledTime);
+        if (newFrame && (!_raw.hasHand || !Accepts(_raw.isLeft))) PalmRange.Pause("等待追踪手掌");
+      }
+      if (newFrame && _raw.hasHand && Accepts(_raw.isLeft))
       {
         ApplyFrame();
         _lastSeenTime = Time.unscaledTime;
@@ -97,6 +126,7 @@ namespace RehabDemo
         _filtersNeedReset = true;
       }
       ComposeJoints();
+      Recording.Record(this, _raw, newFrame);
 
       OnUpdated?.Invoke(Current);
     }
@@ -133,8 +163,28 @@ namespace RehabDemo
         Mathf.Lerp(areaXMin, areaXMax, palmN.x),
         hoverHeight,
         Mathf.Lerp(areaZMax, areaZMin, palmN.y));
+      var distanceMode = ForwardMode != ForwardControlMode.ScreenVertical;
+      var previousZ = _hasBase ? _basePosition.z : distanceMode ? (areaZMin + areaZMax) * 0.5f : position.z;
+      // Distance modes never derive translation from image height, including during calibration.
+      if (distanceMode) position.z = previousZ;
+      var palmMode = ForwardMode == ForwardControlMode.PalmRange;
+      if (palmMode)
+      {
+        var camera = _palmCamera.Value;
+        PalmRange.Update(_raw, camera.width, camera.height, runner.ClockMs, Time.unscaledTime,
+          Mathf.InverseLerp(areaZMin, areaZMax, previousZ));
+      }
+      var depthActive = ForwardMode == ForwardControlMode.ModelDepth && runner.Depth.Calibrated;
+      if (depthActive)
+      {
+        position.z = runner.Depth.MapZ(previousZ, areaZMin, areaZMax, dt);
+      }
       _positionFilter.SetParams(positionMinCutoff, beta, dCutoff);
-      position = _positionFilter.Filter(position, dt);
+      position = _positionFilter.Filter(position, dt, preserveZ: distanceMode);
+      if (palmMode && PalmRange.Calibrated)
+        position.z = PalmRange.Valid ? Mathf.Lerp(areaZMin, areaZMax, PalmRange.Position) : previousZ;
+      if (palmMode && LogPalmRange)
+        Debug.Log($"[PalmRange] captureMs={PalmRange.FrameTimestamp} updateMs={runner.ClockMs} geometryMs={PalmRange.GeometryMs:F3} target={PalmRange.Target:F3} position={PalmRange.Position:F3} z={position.z:F3} valid={PalmRange.Valid} status={PalmRange.Status}");
       _basePosition = position;
 
       // 形状：world landmarks（米，y 朝下）→ Unity 局部坐标 → 转到桌面姿态
@@ -168,29 +218,15 @@ namespace RehabDemo
 
     private void OnDestroy()
     {
+      Recording.Stop();
       Current.tracked = false;
     }
 
-    // 还没有虚拟手的时候（M1），在 Scene 视图里用小球看关节位置
     private void OnDrawGizmos()
     {
       Gizmos.color = new Color(1f, 1f, 1f, 0.3f);
       var center = new Vector3((areaXMin + areaXMax) / 2f, hoverHeight, (areaZMin + areaZMax) / 2f);
       Gizmos.DrawWireCube(center, new Vector3(areaXMax - areaXMin, 0f, areaZMax - areaZMin));
-
-      if (!Application.isPlaying || !Current.tracked || Current.joints == null)
-      {
-        return;
-      }
-      Gizmos.color = new Color(0.37f, 0.83f, 0.82f);
-      for (var i = 0; i < LandmarkIds.Bones.GetLength(0); i++)
-      {
-        Gizmos.DrawLine(_joints[LandmarkIds.Bones[i, 0]], _joints[LandmarkIds.Bones[i, 1]]);
-      }
-      foreach (var joint in _joints)
-      {
-        Gizmos.DrawSphere(joint, 0.012f);
-      }
     }
   }
 }

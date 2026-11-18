@@ -8,6 +8,10 @@ namespace RehabDemo
   public class HandDebugPanel : MonoBehaviour
   {
     public HandTrackingRunner runner;
+    private HandFrameBus _handBus;
+    private bool _palmDetails;
+    private Vector2 _controlScroll;
+    private static readonly string[] ForwardModes = { "画面上下", "手掌伸收", "模型深度" };
     public bool visible = true;
     public int previewWidth = 200;
     public float infoWidth = 190f;
@@ -22,6 +26,7 @@ namespace RehabDemo
 
     private void Awake()
     {
+      _handBus = GetComponent<HandFrameBus>();
       if (runner == null)
       {
         runner = GetComponent<HandTrackingRunner>();
@@ -77,6 +82,85 @@ namespace RehabDemo
       }
 
       var raw = HandFrameBus.Raw;
+      var depth = runner.Depth;
+      if (depth != null && _handBus != null)
+      {
+        var panelWidth = Mathf.Min(460, Mathf.Max(120, UnityEngine.Screen.width - 106));
+        var panel = new Rect(UnityEngine.Screen.width - panelWidth - 8, 8, panelWidth, Mathf.Min(350, UnityEngine.Screen.height - 16));
+        var oldColor = GUI.color;
+        GUI.color = new Color(0.12f, 0.12f, 0.12f, 1f);
+        GUI.DrawTexture(panel, Texture2D.whiteTexture);
+        GUI.color = oldColor;
+        GUILayout.BeginArea(panel, GUI.skin.box);
+        _controlScroll = GUILayout.BeginScrollView(_controlScroll);
+        var mode = (ForwardControlMode)GUILayout.Toolbar((int)_handBus.ForwardMode, ForwardModes);
+        _handBus.SetForwardMode(mode);
+        if (mode == ForwardControlMode.PalmRange)
+        {
+          var palm = _handBus.PalmRange;
+          var labelColor = GUI.contentColor;
+          GUI.contentColor = palm.Calibrated ? Color.green : Color.yellow;
+          GUILayout.Label(palm.Calibrated ? "已启用：手掌伸收控制前后" : "伸收待校准：前后位置保持不动");
+          GUI.contentColor = labelColor;
+          GUILayout.Label(palm.Status);
+          GUILayout.Label($"单手会话 · 实际换手请重新校准 · 有效样本 {palm.CollectedSamples}/15");
+          GUILayout.Label(palm.CanCapture ? "满足校准条件" : palm.CaptureBlockReason);
+          if (!string.IsNullOrEmpty(palm.CalibrationFailure)) GUILayout.Label("采集失败：" + palm.CalibrationFailure);
+          if (palm.Calibrated)
+            GUILayout.Label($"伸收目标 {palm.Target:P0} · 当前行程 {palm.Position:P0}");
+          else
+          {
+            GUILayout.Label(palm.CalibrationNotice);
+            GUILayout.Label("保持画面高度：离摄像头较远 → 第1步；靠近摄像头 → 第2步");
+          }
+          GUILayout.BeginHorizontal();
+          GUILayout.Label($"前后灵敏度 {palm.Gain:F1} 倍", GUILayout.Width(170));
+          palm.Gain = GUILayout.HorizontalSlider(palm.Gain, 0.5f, 3f);
+          GUILayout.EndHorizontal();
+          GUILayout.BeginHorizontal();
+          var enabledBefore = GUI.enabled;
+          GUI.enabled = enabledBefore && !palm.Collecting && !palm.Calibrated;
+          if (GUILayout.Button(palm.Collecting ? $"采集中 {palm.CollectedSamples}/15" : palm.Calibrated ? "伸收已启用" : palm.Stage == 0 ? "第 1/2 步：采集收手位置" : "第 2/2 步：采集伸手位置"))
+            palm.StartCapture(Time.unscaledTime);
+          GUI.enabled = enabledBefore;
+          if (GUILayout.Button("重新校准")) palm.ResetCalibration();
+          GUILayout.EndHorizontal();
+          _palmDetails = GUILayout.Toggle(_palmDetails, "显示手掌诊断");
+          if (_palmDetails)
+          {
+            GUILayout.Label($"有效 {palm.Valid} · 尺度 {palm.Scale:F1} · 线段 {palm.SegmentCount}/6 · 倾斜 {palm.Angle:F0}° · 结果年龄 {palm.AgeMs} ms");
+            _handBus.LogPalmRange = GUILayout.Toggle(_handBus.LogPalmRange, "记录采集时间和前后行程");
+          }
+        }
+        else if (mode == ForwardControlMode.ModelDepth)
+        {
+          GUILayout.Label(depth.PositionMode);
+          GUILayout.Label(depth.Status);
+          GUILayout.Label(depth.Calibrated ? "校准已完成 · 手掌高度固定" : "需要先采集收手位置，再采集伸手位置 · 手掌高度固定");
+          GUILayout.Label($"前后目标 {depth.Target:P0} · 当前行程 {depth.Progress:P0} · {depth.UpdateHz:F1} Hz");
+          GUILayout.Label($"图像入队 {depth.SubmittedFrames} · 深度返回 {depth.ReceivedFrames} · 结果年龄 {depth.ResultAgeMs:F0} ms");
+          GUILayout.Label($"桌面 Z {_handBus.TableZ:F2} m");
+          if (depth.Latest != null) GUILayout.Label($"手掌原始深度 {depth.Latest.depth:F3} · 有效 {depth.Latest.valid}");
+          GUILayout.BeginHorizontal();
+          GUILayout.Label($"前后灵敏度 {depth.movementSensitivity:F1} 倍", GUILayout.Width(170));
+          depth.movementSensitivity = GUILayout.HorizontalSlider(depth.movementSensitivity, 1f, 3f);
+          GUILayout.EndHorizontal();
+          GUILayout.BeginHorizontal();
+          if (!depth.Calibrated && !depth.CollectingCalibration && depth.Ready &&
+              GUILayout.Button(depth.CalibrationButton)) depth.Calibrate();
+          if (GUILayout.Button("重新校准")) depth.ResetCalibration();
+          if (GUILayout.Button("重试服务")) depth.Retry();
+          GUILayout.EndHorizontal();
+        }
+        var recording = _handBus.Recording;
+        if (GUILayout.Button(recording.Active ? "停止并保存记录" : "记录 30 秒伸收诊断"))
+        {
+          if (recording.Active) recording.Stop(); else recording.Start();
+        }
+        if (!string.IsNullOrEmpty(recording.Status)) GUILayout.Label(recording.Status);
+        GUILayout.EndScrollView();
+        GUILayout.EndArea();
+      }
       var pose = HandFrameBus.Current;
       var hasRawHand = raw != null && raw.hasHand;
 

@@ -49,9 +49,10 @@ namespace RehabDemo
     private readonly OneEuroFilter _y = new OneEuroFilter();
     private readonly OneEuroFilter _z = new OneEuroFilter();
 
-    public void SetParams(float minCutoff, float beta, float dCutoff)
+    public void SetParams(float minCutoff, float beta, float dCutoff, float zMinCutoff = -1f)
     {
       _x.minCutoff = _y.minCutoff = _z.minCutoff = minCutoff;
+      if (zMinCutoff > 0f) _z.minCutoff = zMinCutoff;
       _x.beta = _y.beta = _z.beta = beta;
       _x.dCutoff = _y.dCutoff = _z.dCutoff = dCutoff;
     }
@@ -63,6 +64,8 @@ namespace RehabDemo
       _z.Reset();
     }
 
-    public Vector3 Filter(Vector3 v, float dt) => new Vector3(_x.Filter(v.x, dt), _y.Filter(v.y, dt), _z.Filter(v.z, dt));
+    // Independently controlled Z has already been filtered in normalized travel units.
+    public Vector3 Filter(Vector3 v, float dt, bool preserveZ = false) =>
+      new Vector3(_x.Filter(v.x, dt), _y.Filter(v.y, dt), preserveZ ? v.z : _z.Filter(v.z, dt));
   }
 }

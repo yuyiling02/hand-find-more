@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Mediapipe.Tasks.Core;
 using Mediapipe.Tasks.Vision.Core;
 using Mediapipe.Tasks.Vision.HandLandmarker;
@@ -8,6 +9,7 @@ using Mediapipe.Unity;
 using Mediapipe.Unity.Experimental;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Unity.Collections.LowLevel.Unsafe;
 using Debug = UnityEngine.Debug;
 // 示例程序集里还有一个 Mediapipe.Unity.RunningMode，这里明确用 Tasks API 的
 using RunningMode = Mediapipe.Tasks.Vision.Core.RunningMode;
@@ -21,6 +23,15 @@ namespace RehabDemo
   public class HandTrackingRunner : MonoBehaviour
   {
     private const string _ModelName = "hand_landmarker.bytes";
+    private static readonly Mediapipe.ImageFrame.Deleter FreePixels = ReleasePixels;
+    public DepthController Depth { get; private set; }
+    public long ClockMs => _stopwatch.ElapsedMilliseconds;
+
+    private void Awake()
+    {
+      Depth = GetComponent<DepthController>();
+      if (Depth == null) Depth = gameObject.AddComponent<DepthController>();
+    }
 
     [Header("摄像头")]
     public int deviceIndex = 0;
@@ -146,6 +157,7 @@ namespace RehabDemo
         _mirrored = mirrorX;
         // 与示例 ImageSource.GetTransformationOptions() 一致：纹理本身没有上下颠倒时需要垂直翻转
         var flipVertically = flipY ^ _webCam.videoVerticallyMirrored;
+        var timestamp = NextTimestampMs();
         req = textureFrame.ReadTextureAsync(_webCam, mirrorX, flipVertically);
         yield return waitUntilReqDone;
 
@@ -156,11 +168,33 @@ namespace RehabDemo
           continue;
         }
 
-        var image = textureFrame.BuildCPUImage();
-        textureFrame.Release();
-        _landmarker.DetectAsync(image, NextTimestampMs(), imageProcessingOptions);
+        Mediapipe.Image image;
+        try { image = CopyImage(textureFrame); }
+        finally { textureFrame.Release(); }
+        using (image)
+          _landmarker.DetectAsync(image, timestamp, imageProcessingOptions);
       }
     }
+
+    private static unsafe Mediapipe.Image CopyImage(TextureFrame frame)
+    {
+      var source = frame.GetRawTextureData<byte>();
+      var pixels = Marshal.AllocHGlobal(source.Length);
+      try
+      {
+        UnsafeUtility.MemCpy((void*)pixels, NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(source), source.Length);
+      }
+      catch
+      {
+        Marshal.FreeHGlobal(pixels);
+        throw;
+      }
+      // The MediaPipe packet owns this buffer until the async graph releases the image.
+      return new Mediapipe.Image(frame.imageFormat, frame.width, frame.height, frame.width * 4, pixels, FreePixels);
+    }
+
+    [AOT.MonoPInvokeCallback(typeof(Mediapipe.ImageFrame.Deleter))]
+    private static void ReleasePixels(IntPtr pixels) => Marshal.FreeHGlobal(pixels);
 
     /// <summary>DetectAsync 的时间戳必须严格递增。</summary>
     private long NextTimestampMs()
@@ -266,6 +300,7 @@ namespace RehabDemo
           _latest.isLeft = bestIsLeft ^ _mirrored;
           _latest.handednessScore = bestScore;
           _latest.hasHand = true;
+          Depth.Submit(image, _latest);
         }
       }
       catch (Exception e)
